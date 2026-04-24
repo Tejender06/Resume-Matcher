@@ -43,7 +43,8 @@ function App() {
       formData.append('resumeFile', resumeFile);
       formData.append('jobDescription', jobDescription);
 
-      const response = await axios.post('http://localhost:3000/api/match', formData, {
+      const API_URL = import.meta.env.VITE_API_URL || 'https://resume-matcher-rzm8.onrender.com';
+      const response = await axios.post(`${API_URL}/api/match`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         }
