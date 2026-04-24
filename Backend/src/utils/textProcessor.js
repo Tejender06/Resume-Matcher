@@ -1,34 +1,115 @@
-const sw = require('stopword');
+const stringSimilarity = require('string-similarity');
+
+// 1. GENERIC WORDS BLACKLIST
+const GENERIC_WORDS = new Set([
+    "understanding", "knowledge", "ability", "role", "duration", "responsible",
+    "etc", "experience", "basic", "strong", "good", "excellent", "working",
+    "familiarity", "proficient", "skills", "years", "project", "team", "development",
+    "exposure", "criteria", "issues", "fix", "quality", "structure"
+]);
+
+// 2. CANONICAL SKILL MAPPING
+const CANONICAL_MAP = {
+    "node": "node.js",
+    "nodejs": "node.js",
+    "express.js": "express",
+    "postgres": "postgresql",
+    "psql": "postgresql",
+    "database": "postgresql",
+    "api": "rest api",
+    "rest": "rest api",
+    "authentication": "jwt",
+    "auth": "jwt"
+};
+
+// 3. CONTROLLED SKILL DICTIONARY
+const SKILL_DICT = {
+    core: [
+        "node.js", "express", "django", "postgresql", "mysql", "mongodb", 
+        "react", "python", "java", "typescript", "javascript"
+    ],
+    concepts: [
+        "system design", "caching", "authentication", "jwt", "rest api", 
+        "graphql", "microservices", "ci/cd", "backend architecture", "debugging"
+    ],
+    tools: [
+        "docker", "kubernetes", "git", "redis", "linux", "aws", "gcp"
+    ]
+};
+
+// Combine all known canonical skills for extraction
+const ALL_KNOWN_SKILLS = [...SKILL_DICT.core, ...SKILL_DICT.concepts, ...SKILL_DICT.tools];
 
 /**
- * Normalizes text, tokenizes, removes stopwords and punctuation, and counts frequency.
- * @param {string} text - Raw input string
- * @returns {Object} - Object containing unique keywords and a word frequency map
+ * Maps a raw term to its canonical form
  */
-const extractKeywords = (text) => {
-    if (!text) return { keywords: [], frequency: {} };
+const getCanonicalTerm = (term) => {
+    return CANONICAL_MAP[term] || term;
+};
 
-    // 1. Convert to lowercase and remove punctuation
-    const cleanText = text.toLowerCase().replace(/[^\w\s]|_/g, " ").replace(/\s+/g, " ");
+/**
+ * Gets the weight of a canonical skill
+ */
+const getSkillWeight = (canonicalSkill) => {
+    if (SKILL_DICT.core.includes(canonicalSkill)) return 3;
+    if (SKILL_DICT.concepts.includes(canonicalSkill)) return 3;
+    if (SKILL_DICT.tools.includes(canonicalSkill)) return 1;
+    return 1; // Default fallback weight
+};
 
-    // 2. Tokenize into words
-    const tokens = cleanText.split(" ").filter(word => word.trim().length > 1);
+const getSkillType = (canonicalSkill) => {
+    if (SKILL_DICT.concepts.includes(canonicalSkill)) return 'concept';
+    return 'skill';
+};
 
-    // 3. Remove stopwords (English)
-    const filteredTokens = sw.removeStopwords(tokens);
+/**
+ * Extracts and deduplicates canonical skills from raw text
+ * @param {string} text - Raw input string
+ * @returns {Array} - Array of unique canonical skill objects
+ */
+const extractSkills = (text) => {
+    if (!text) return [];
 
-    // 4. Count word frequency
-    const frequency = {};
-    filteredTokens.forEach(word => {
-        frequency[word] = (frequency[word] || 0) + 1;
+    // Clean text (lowercase, remove most punctuation but keep dots for node.js)
+    const cleanText = text.toLowerCase().replace(/[^\w\s\.]/g, " ").replace(/\s+/g, " ");
+    
+    const extractedSkills = new Map(); // using Map for deduplication
+
+    // Look for all known skills and their canonical forms in the text
+    const words = cleanText.split(' ');
+    const biGrams = [];
+    for (let i = 0; i < words.length - 1; i++) {
+        biGrams.push(`${words[i]} ${words[i+1]}`);
+    }
+    const triGrams = [];
+    for (let i = 0; i < words.length - 2; i++) {
+        triGrams.push(`${words[i]} ${words[i+1]} ${words[i+2]}`);
+    }
+
+    const allTokens = [...words, ...biGrams, ...triGrams];
+
+    allTokens.forEach(token => {
+        token = token.trim();
+        if (token.length < 2 || GENERIC_WORDS.has(token)) return;
+
+        let canonical = getCanonicalTerm(token);
+
+        // Does this canonical term exist in our controlled dictionary?
+        if (ALL_KNOWN_SKILLS.includes(canonical)) {
+            extractedSkills.set(canonical, {
+                skill: canonical,
+                weight: getSkillWeight(canonical),
+                type: getSkillType(canonical)
+            });
+        }
     });
 
-    // 5. Extract unique keywords, sorted by frequency (descending)
-    const keywords = Object.keys(frequency).sort((a, b) => frequency[b] - frequency[a]);
-
-    return { keywords, frequency };
+    return Array.from(extractedSkills.values());
 };
 
 module.exports = {
-    extractKeywords
+    extractSkills,
+    ALL_KNOWN_SKILLS,
+    getSkillWeight,
+    getCanonicalTerm
 };

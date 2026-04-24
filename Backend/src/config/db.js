@@ -1,43 +1,38 @@
 const { Pool } = require('pg');
 
-let connStr = process.env.DATABASE_URL;
-if (connStr && !connStr.includes('ssl=')) {
-    connStr += (connStr.includes('?') ? '&' : '?') + 'ssl=true';
+if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL is missing. Application cannot start without a database.');
 }
 
 const pool = new Pool({
-    connectionString: connStr,
+    connectionString: process.env.DATABASE_URL,
+    max: 10,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 5000,
     ssl: {
-        rejectUnauthorized: false // Required for Render's external connections
+        rejectUnauthorized: false
     }
 });
 
-// Function to initialize the database and create the table if it doesn't exist
-const initDB = async () => {
-    try {
-        if (!process.env.DATABASE_URL) {
-            console.log('⚠️ DATABASE_URL not found. Skipping database initialization.');
-            return;
-        }
+pool.on('error', (err) => {
+    console.error('Unexpected error on idle client', err);
+    process.exit(-1);
+});
 
-        const createTableQuery = `
-            CREATE TABLE IF NOT EXISTS matches (
-                id SERIAL PRIMARY KEY,
-                resume_text TEXT NOT NULL,
-                job_description TEXT NOT NULL,
-                score INTEGER NOT NULL,
-                matched_keywords TEXT[] NOT NULL,
-                missing_keywords TEXT[] NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        `;
-        
-        await pool.query(createTableQuery);
-        console.log('✅ PostgreSQL Database connected and "matches" table is ready.');
-    } catch (error) {
-        console.error('❌ Failed to initialize database:', error.message);
-        throw error;
-    }
+const initDB = async () => {
+    const createTableQuery = `
+        CREATE TABLE IF NOT EXISTS matches (
+            id SERIAL PRIMARY KEY,
+            resume_text TEXT NOT NULL,
+            job_description TEXT NOT NULL,
+            score INTEGER NOT NULL,
+            matched_keywords TEXT[] NOT NULL,
+            missing_keywords TEXT[] NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    `;
+    await pool.query(createTableQuery);
+    console.log('PostgreSQL Database connected and "matches" table is ready.');
 };
 
 module.exports = {

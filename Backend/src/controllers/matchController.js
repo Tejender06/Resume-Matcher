@@ -1,18 +1,20 @@
 const matchService = require('../services/matchService');
 const { pool } = require('../config/db');
+const { parseFileBuffer } = require('../utils/fileParser');
 
 /**
  * Controller to handle resume to job description matching
  */
 const analyzeMatch = async (req, res, next) => {
     try {
-        const { resumeText, jobDescription } = req.body;
+        const { jobDescription } = req.body;
+        const file = req.file;
 
         // Validation
-        if (!resumeText || typeof resumeText !== 'string' || resumeText.trim() === '') {
+        if (!file) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid or missing "resumeText" in request body.'
+                message: 'Please upload a valid resume file (.pdf or .docx).'
             });
         }
 
@@ -20,6 +22,16 @@ const analyzeMatch = async (req, res, next) => {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid or missing "jobDescription" in request body.'
+            });
+        }
+
+        // Parse the file buffer to text
+        const resumeText = await parseFileBuffer(file.buffer, file.mimetype);
+
+        if (!resumeText || resumeText.trim() === '') {
+            return res.status(400).json({
+                success: false,
+                message: 'Could not extract any text from the uploaded file.'
             });
         }
 
@@ -37,9 +49,9 @@ const analyzeMatch = async (req, res, next) => {
             const values = [
                 resumeText,
                 jobDescription,
-                result.score,
-                result.matched,
-                result.missing
+                result.match_percentage || 0,
+                result.matched_skills || [],
+                result.missing_skills || []
             ];
             const dbRes = await pool.query(insertQuery, values);
             matchId = dbRes.rows[0].id;
@@ -52,6 +64,9 @@ const analyzeMatch = async (req, res, next) => {
             data: result
         });
     } catch (error) {
+        if (error.message.includes('Unsupported file type')) {
+             return res.status(400).json({ success: false, message: error.message });
+        }
         next(error); // Pass errors to global error handler
     }
 };
